@@ -1,0 +1,95 @@
+@startuml C3_Component
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+LAYOUT_TOP_DOWN()
+
+title C3 Component Diagram - API Server\nHospital Bed Manager System
+
+Container(frontend, "Frontend SPA", "React 18, MUI, Recharts, Axios", "")
+ContainerDb(db, "MongoDB Atlas", "MongoDB 6.3, Mongoose 7.6", "")
+System_Ext(gemini, "Google Gemini AI", "Gemini 2.5 Flash", "")
+Container(ws, "WebSocket Server", "Socket.IO 4.7", "")
+
+Container_Boundary(api, "API Server [Node.js + Express 4.18]") {
+
+    Boundary(b1, "Authentication & Authorization") {
+        Component(auth, "Auth Module", "JWT 9.0, bcrypt 6.0", "POST /api/auth/login - credential validation\nPOST /api/auth/register - user creation\nJWT payload: {id, role, ward, name}\n24h token expiry, bcrypt salt:10\nAuto-seeds 4 default users on startup")
+        Component(rbac, "RBAC Middleware", "Express Middleware", "authenticateToken(): JWT verify on all /api/*\nauthorize(...roles): role-based route guard\nRoles: admin, icu_manager, ward_staff, er_staff")
+        Component(users, "User Management", "Express Routes in server.js", "GET/POST/PUT/DELETE /api/users\nAdmin-only, prevents deleting last admin\nStores: username, password(hashed), role, ward")
+    }
+
+    Boundary(b2, "Bed Operations & Lifecycle") {
+        Component(beds, "Bed Management", "routes/beds.js", "GET /api/beds - list (filter: ward, status, floor)\nGET /api/beds/available - availability search\nGET /api/beds/stats - occupancy + ward aggregation\nPUT /api/beds/:id - status update with state machine:\n  Available->Reserved/Occupied/Cleaning\n  Reserved->Occupied/Available\n  Occupied->Cleaning/Available\n  Cleaning->Available\nPOST /api/beds/recommend - multi-tier matching:\n  Perfect > Ward match > Equip match > Any\nGET /api/beds/history - 60-day time-series\nGET /api/beds/qr/site - QR code for mobile access")
+        Component(patients, "Patient Management", "routes/patients.js", "POST /api/patients - admit patient:\n  Auto bed assignment, equip matching\n  Generates PAT-XXXXXX ID, bed->occupied\nDELETE /api/patients/:id - discharge:\n  Bed->cleaning, creates CleaningJob\n  Records actualDischarge timestamp\nGET /api/patients - list with ward/status filters\nSchema: vitals[], medications[], transferHistory[]")
+        Component(cleaning, "Cleaning Workflow", "CleaningJob Model", "Auto-created on bed status->cleaning\nFields: bedId, ward, floor, section, status\nStatus: pending->active->completed\nassignedTo, startedAt, completedAt")
+    }
+
+    Boundary(b3, "Request & Transfer Workflows") {
+        Component(requests, "Bed Request System", "routes/bedRequests.js", "POST / - create (er_staff, icu_manager)\n  Auto-gen REQ-XXXXXX via pre-save hook\n  Priority 1-5, default ETA 30min\nPOST /:id/approve - verify + reserve bed\nPOST /:id/deny - with denial reason\nPOST /:id/fulfill - admit patient from request\nPOST /:id/cancel - cancel pending request\nDELETE /:id - soft delete (isDeleted flag)\nRole-filtered queries: ER sees own, ICU sees ward")
+        Component(transfers, "Ward Transfer System", "routes/wardTransfers.js", "POST / - create transfer request\n  Rule: no transfers TO Emergency ward\n  Validates: no duplicate pending transfers\nPOST /:id/approve - immediate execution:\n  1. Find available bed in target ward\n  2. Old bed->cleaning, new bed->occupied\n  3. Update patient.bedId, mark completed\nPOST /:id/deny - with required reason\nPUT /:id - update pending request details\nDELETE /:id - delete pending only")
+    }
+
+    Boundary(b4, "Analytics, AI & Configuration") {
+        Component(chatbot, "AI Analytics Chatbot", "routes/chatbot.js\n@google/generative-ai 0.24", "POST /api/chatbot/chat (admin-only)\n6 callable functions for DB queries:\n  getOccupancyData, calculateOccupancyStats\n  getBedRequestStats, getPatientStats\n  getCurrentBedStatus, compareTimePeriods\nSafeguards: 5-min response cache,\nparam normalization (ER->Emergency),\nresponse validation, exec logging, max 5 rounds")
+        Component(alerts, "Alert System", "routes/alerts.js", "GET /api/alerts - fetch (filter: type, ward)\nPUT /api/alerts/:id/acknowledge\nAuto-generated from occupancy stats:\n  >=80%: warning (P3), >=90%: critical (P4)\n  >=95%: critical (P5)\nTypes: critical, warning, info, success, emergency\nFrontend: 1.5s debounce, per-ward tracking")
+        Component(history, "Occupancy History", "OccupancyHistory Model", "60-day time-series, hourly granularity\n24 entries/day with per-ward breakdown\nFields: timestamp, totalBeds, occupied,\n  available, cleaning, reserved, occupancyRate,\n  wardStats[], hourlyData[], peakHour\nToday's entry upserted on each stats fetch")
+        Component(settings, "System Settings", "routes/systemSettings.js", "GET/PUT /api/settings (admin-only)\nSingleton pattern (unique 'settings' doc)\nwarningThreshold:80%, criticalThreshold:90%\nWard capacities: 15 beds each (configurable)\nReporting period, export format options\nBroadcasts changes via Socket.IO")
+        Component(seed, "Seed Data Manager", "routes/seedRoutes.js", "POST /api/seed/import (admin-only)\nImports 60-day historical occupancy data\nRealistic patterns: weekly cycles, weekend dips,\nmorning/evening peaks, ward-specific adjustments")
+    }
+}
+
+' === Frontend to all components ===
+Rel(frontend, auth, "POST /api/auth/*", "HTTPS")
+Rel(frontend, users, "CRUD /api/users", "HTTPS")
+Rel(frontend, beds, "GET/PUT /api/beds/*", "HTTPS")
+Rel(frontend, patients, "POST/DEL /api/patients/*", "HTTPS")
+Rel(frontend, requests, "GET/POST /api/bed-requests/*", "HTTPS")
+Rel(frontend, transfers, "GET/POST /api/ward-transfers/*", "HTTPS")
+Rel(frontend, chatbot, "POST /api/chatbot/chat", "HTTPS")
+Rel(frontend, alerts, "GET/PUT /api/alerts/*", "HTTPS")
+Rel(frontend, settings, "GET/PUT /api/settings", "HTTPS")
+
+' === Auth flow ===
+Rel_R(auth, rbac, "Tokens verified by")
+Rel(rbac, beds, "Role guard")
+Rel(rbac, requests, "Role guard")
+Rel(rbac, transfers, "Role guard")
+Rel(rbac, chatbot, "Admin only")
+Rel(rbac, settings, "Admin only")
+Rel(rbac, users, "Admin only")
+Rel(rbac, seed, "Admin only")
+
+' === Inter-component dependencies ===
+Rel(requests, beds, "Reserves bed on approve")
+Rel(requests, patients, "Creates patient on fulfill")
+Rel(transfers, beds, "Old bed->cleaning, new->occupied")
+Rel(transfers, patients, "Updates patient.bedId")
+Rel_R(beds, cleaning, "Creates job on discharge")
+Rel(beds, alerts, "Generates threshold alerts")
+Rel(beds, history, "Upserts today's entry")
+Rel(chatbot, history, "Queries historical data")
+
+' === Database connections ===
+Rel_D(auth, db, "User", "Mongoose")
+Rel_D(beds, db, "Bed", "Mongoose")
+Rel_D(patients, db, "Patient", "Mongoose")
+Rel_D(requests, db, "BedRequest", "Mongoose")
+Rel_D(transfers, db, "WardTransfer", "Mongoose")
+Rel_D(cleaning, db, "CleaningJob", "Mongoose")
+Rel_D(chatbot, db, "OccupancyHistory, BedRequest,\nPatient, Bed", "Mongoose")
+Rel_D(alerts, db, "Alert", "Mongoose")
+Rel_D(history, db, "OccupancyHistory", "Mongoose")
+Rel_D(settings, db, "SystemSettings", "Mongoose")
+
+' === Gemini AI ===
+Rel(chatbot, gemini, "Function calling (6 functions,\nup to 5 rounds per query)", "HTTPS")
+
+' === WebSocket events ===
+Rel(beds, ws, "bed-updated, ward-bed-updated,\nnew-cleaning-job", "io.emit()")
+Rel(patients, ws, "patient-admitted,\npatient-discharged", "io.emit()")
+Rel(requests, ws, "new-bed-request,\nbed-request-approved/denied", "io.emit()")
+Rel(transfers, ws, "ward-transfer-updated,\nward-transfer-approved,\npatient-transferred", "io.emit()")
+Rel(settings, ws, "settings-updated", "io.emit()")
+
+@enduml

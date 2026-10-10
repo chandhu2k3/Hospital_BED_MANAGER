@@ -1,0 +1,37 @@
+@startuml C2_Container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Container Diagram - Hospital Bed Manager System
+
+Person(er_staff, "ER Staff", "Creates bed requests")
+Person(icu_manager, "ICU / Bed Manager", "Manages bed allocation")
+Person(ward_staff, "Ward Staff", "Manages bed operations")
+Person(admin, "Hospital Admin", "Views analytics")
+
+System_Boundary(bed_manager, "Hospital Bed Manager System") {
+    Container(frontend, "Frontend Application", "React 18.2, Material-UI 7.3,\nRecharts 2.7, Axios 1.4,\nSocket.IO Client 4.6", "Single-page application with\nrole-based dashboards, real-time\nbed tracking, occupancy charts,\nand AI chatbot interface.\nDark/light theme support.")
+
+    Container(backend, "API Server", "Node.js, Express 4.18,\nJWT 9.0, bcrypt 6.0", "RESTful API with authentication,\nRBAC, bed lifecycle management,\npatient CRUD, bed requests,\nward transfers, alerts, and\nAI chatbot orchestration.\n8 route modules.")
+
+    Container(websocket, "Real-Time Event Server", "Socket.IO 4.7", "WebSocket server for bidirectional\nreal-time updates. Room-based\nrouting (ward rooms, bed rooms).\n10+ distinct event types.")
+
+    ContainerDb(database, "Database", "MongoDB 6.3 (Atlas),\nMongoose 7.6 ODM", "8 collections: Beds, Patients,\nBedRequests, WardTransfers,\nAlerts, OccupancyHistory,\nSystemSettings, CleaningJobs.\nCompound indexes on\n(ward+status), (status+createdAt).")
+}
+
+System_Ext(gemini, "Google Gemini AI API", "Gemini 2.5 Flash with\nfunction calling for analytics")
+
+Rel(er_staff, frontend, "Creates requests, views queue", "HTTPS :3000")
+Rel(icu_manager, frontend, "Approves requests, allocates beds", "HTTPS :3000")
+Rel(ward_staff, frontend, "Updates bed states", "HTTPS :3000")
+Rel(admin, frontend, "Analytics, chatbot, settings", "HTTPS :3000")
+
+Rel_D(frontend, backend, "Authenticated API calls\n(Bearer JWT)", "JSON/HTTPS :5000")
+Rel_D(frontend, websocket, "Subscribes to real-time events", "WebSocket :5000")
+
+Rel_D(backend, database, "Reads/writes via Mongoose ODM", "MongoDB Protocol/TLS")
+Rel_D(backend, gemini, "Function calling (6 functions,\nup to 5 rounds)", "HTTPS/REST")
+Rel_R(backend, websocket, "Emits events on data changes", "In-process (shared io)")
+
+@enduml

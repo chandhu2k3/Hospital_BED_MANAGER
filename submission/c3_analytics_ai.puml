@@ -1,0 +1,53 @@
+@startuml C3_Analytics_AI
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+title C3 Component Diagram - Analytics & AI Module
+
+Container(frontend, "Frontend Application", "React 18.2", "Admin Dashboard")
+ContainerDb(database, "MongoDB Atlas", "MongoDB 6.3", "")
+System_Ext(gemini, "Google Gemini AI API", "Gemini 2.5 Flash")
+
+Container_Boundary(backend, "API Server (Node.js + Express 4.18)") {
+    Component(chatbot, "AI Analytics Chatbot", "Express Router (routes/chatbot.js)\n@google/generative-ai 0.24", "POST /api/chatbot/chat (admin-only)\n\nFunction Calling Architecture:\nAdmin query -> Gemini decides which\nfunction(s) to call -> Backend executes\nagainst MongoDB -> Results sent back\nto Gemini -> Natural language response\n\nUp to 5 function call rounds per query.\nConversation history maintained.")
+
+    Component(fn_occupancy, "getOccupancyData()", "Callable Function", "Params: startDate, endDate, ward?\nQueries OccupancyHistory collection\nReturns time-series occupancy data\nwith optional ward filtering")
+
+    Component(fn_stats, "calculateOccupancyStats()", "Callable Function", "Params: startDate, endDate, ward?\nCalculates: average, median, peak,\nlowest, current occupancy rates\nIncludes calculation formula\nand sample size for transparency")
+
+    Component(fn_requests, "getBedRequestStats()", "Callable Function", "Params: startDate, endDate, status?, ward?\nCounts requests by status:\napproved, denied, pending,\nfulfilled, cancelled\nGrouped by ward")
+
+    Component(fn_patients, "getPatientStats()", "Callable Function", "Params: startDate, endDate, ward?\nReturns: totalAdmissions,\ncurrentlyAdmitted, discharged,\naverageStayHours/Days\nFilters unrealistic values (>1 year)")
+
+    Component(fn_beds, "getCurrentBedStatus()", "Callable Function", "Params: ward?\nReal-time bed counts:\noccupied, available, cleaning,\nreserved, maintenance\nPer-ward breakdown with\noccupancy rate calculation")
+
+    Component(fn_compare, "compareTimePeriods()", "Callable Function", "Params: period1Start/End, period2Start/End\nCompares occupancy between periods\nReturns: averageChange, peakChange,\nchangePercent, trend (increasing/\ndecreasing/stable)")
+
+    Component(safeguards, "Chatbot Safeguards", "Middleware Layer", "Response Cache: 5-min TTL (Map)\nParameter Normalization:\n  'ER' -> 'Emergency'\n  'intensive care' -> 'ICU'\n  'cardiac' -> 'Cardiology'\nInput Validation: date format,\n  ward names, range consistency\nResponse Validation: % range 0-100,\n  peak >= lowest, totals match\nExecution Logging: function name,\n  params, time, success/failure")
+
+    Component(history, "Occupancy History Service", "Mongoose Model (OccupancyHistory)", "60-day time-series data\nHourly granularity (24 entries/day)\nPer-ward breakdown per hour\n\nSchema:\n  timestamp, totalBeds, occupied,\n  available, cleaning, reserved,\n  occupancyRate, peakHour,\n  wardStats[], hourlyData[]\n\nToday's entry: upserted on stats fetch\nHistorical: seeded from JSON")
+}
+
+Rel(frontend, chatbot, "POST /api/chatbot/chat\n{message, history[]}", "JSON/HTTPS")
+
+Rel(chatbot, gemini, "System prompt + function declarations\n-> Gemini decides which to call\n-> Results returned to Gemini\n-> Final natural language response", "HTTPS/REST")
+
+Rel_D(chatbot, safeguards, "Pre-processes params,\npost-validates responses")
+
+Rel_D(chatbot, fn_occupancy, "Calls when user asks\nabout occupancy data")
+Rel_D(chatbot, fn_stats, "Calls when user asks\nabout statistics")
+Rel_D(chatbot, fn_requests, "Calls when user asks\nabout bed requests")
+Rel_D(chatbot, fn_patients, "Calls when user asks\nabout patients")
+Rel_D(chatbot, fn_beds, "Calls when user asks\nabout current status")
+Rel_D(chatbot, fn_compare, "Calls when user asks\nto compare periods")
+
+Rel_D(fn_occupancy, database, "OccupancyHistory", "Mongoose")
+Rel_D(fn_stats, database, "OccupancyHistory", "Mongoose")
+Rel_D(fn_requests, database, "BedRequest", "Mongoose")
+Rel_D(fn_patients, database, "Patient", "Mongoose")
+Rel_D(fn_beds, database, "Bed", "Mongoose")
+Rel_D(fn_compare, database, "OccupancyHistory", "Mongoose")
+Rel_D(history, database, "OccupancyHistory", "Mongoose")
+
+@enduml

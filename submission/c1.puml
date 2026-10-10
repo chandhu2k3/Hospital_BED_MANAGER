@@ -1,0 +1,26 @@
+@startuml C1_Context
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+title System Context Diagram - Hospital Bed Manager System
+
+Person(er_staff, "ER Staff", "Creates emergency and scheduled\nbed requests for incoming patients")
+Person(icu_manager, "ICU / Bed Manager", "Approves/denies bed requests,\nmanages bed allocation,\ninitiates ward transfers")
+Person(ward_staff, "Ward Staff", "Updates bed statuses,\nadmits/discharges patients,\nmanages cleaning workflow")
+Person(admin, "Hospital Administrator", "Views occupancy analytics,\nconfigures system settings,\nuses AI chatbot for insights")
+
+System(bed_manager, "Hospital Bed Manager System", "Real-time hospital bed management system\nproviding bed tracking, smart allocation,\noccupancy analytics, and AI-powered insights\nacross Emergency, ICU, General Ward,\nand Cardiology departments.")
+
+System_Ext(mongodb, "MongoDB Atlas", "Cloud-hosted NoSQL database\nfor persistent storage of\nall operational data")
+System_Ext(gemini, "Google Gemini AI API", "Generative AI service (Gemini 2.5 Flash)\nproviding natural language analytics\nvia function calling")
+
+Rel_D(er_staff, bed_manager, "Creates bed requests, views queue", "HTTPS / WebSocket")
+Rel_D(icu_manager, bed_manager, "Approves requests, allocates beds,\nmanages transfers, receives alerts", "HTTPS / WebSocket")
+Rel_D(ward_staff, bed_manager, "Updates bed states, admits\nand discharges patients", "HTTPS / WebSocket")
+Rel_D(admin, bed_manager, "Views analytics, configures\nthresholds, queries AI chatbot", "HTTPS / WebSocket")
+
+Rel_R(bed_manager, mongodb, "Reads/writes bed, patient,\nrequest, alert, history data", "MongoDB Protocol / TLS")
+Rel_R(bed_manager, gemini, "Sends queries with function\ndeclarations, receives responses", "HTTPS / REST API")
+
+@enduml
